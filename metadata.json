@@ -1,0 +1,6 @@
+{
+  "name": "Admin & Content Management System",
+  "description": "Secure administration and content management infrastructure with standalone PostgreSQL, Prisma ORM, and defense-in-depth security.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

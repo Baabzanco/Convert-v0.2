@@ -1,0 +1,161 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// -------------------------------------------------------------
+// Administrator Users
+// -------------------------------------------------------------
+model AdminUser {
+  id                  String               @id @default(uuid())
+  username            String               @unique
+  email               String               @unique
+  passwordHash        String               // Argon2id hash
+  role                String               @default("ADMIN") // SUPER_ADMIN, ADMIN, EDITOR
+  isActive            Boolean              @default(true)
+  failedLoginAttempts Int                  @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  sessions            AdminSession[]
+  revisions           ContentRevision[]
+  auditEvents         SecurityAuditEvent[]
+
+  @@map("admin_users")
+}
+
+// -------------------------------------------------------------
+// Secure Database-Backed Admin Sessions
+// -------------------------------------------------------------
+model AdminSession {
+  id           String    @id @default(uuid())
+  sessionToken String    @unique // Hashed token (SHA-256)
+  adminUserId  String
+  adminUser    AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  lastActiveAt DateTime  @default(now())
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+  @@map("admin_sessions")
+}
+
+// -------------------------------------------------------------
+// Pages & Structured Content
+// -------------------------------------------------------------
+model Page {
+  id                    String            @id @default(uuid())
+  slug                  String            @unique
+  title                 String
+  status                String            @default("DRAFT") // DRAFT, PUBLISHED, ARCHIVED
+  structuredContent     Json              // Published structured sections/blocks (JSON)
+  draftContent          Json?             // Work-in-progress draft content (never leaked to public)
+  hasUnpublishedChanges Boolean           @default(false)
+  version               Int               @default(1) // Optimistic concurrency control
+  lastUpdatedById       String?
+  publishedAt           DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  seoSettings           PageSeo?
+  revisions             ContentRevision[]
+
+  @@index([status])
+  @@index([slug])
+  @@map("pages")
+}
+
+// -------------------------------------------------------------
+// Page SEO Settings
+// -------------------------------------------------------------
+model PageSeo {
+  id              String   @id @default(uuid())
+  pageId          String   @unique
+  page            Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  metaTitle       String?
+  metaDescription String?
+  canonicalUrl    String?
+  ogTitle         String?
+  ogDescription   String?
+  ogImage         String?
+  twitterCard     String?  @default("summary_large_image")
+  robots          String?  @default("index, follow")
+  preferredH1     String?  // Preferred H1 heading override
+  structuredData  Json?    // Structured JSON-LD representation
+  draftSeo        Json?    // Draft SEO overrides before publishing
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("page_seo")
+}
+
+// -------------------------------------------------------------
+// Content Revisions
+// -------------------------------------------------------------
+model ContentRevision {
+  id                String     @id @default(uuid())
+  pageId            String
+  page              Page       @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  authorId          String?
+  author            AdminUser? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  revisionNumber    Int
+  title             String
+  structuredContent Json
+  changeSummary     String?
+  createdAt         DateTime   @default(now())
+
+  @@unique([pageId, revisionNumber])
+  @@index([pageId])
+  @@index([authorId])
+  @@map("content_revisions")
+}
+
+// -------------------------------------------------------------
+// Redirect Rules
+// -------------------------------------------------------------
+model RedirectRule {
+  id          String    @id @default(uuid())
+  sourcePath  String    @unique
+  targetPath  String
+  statusCode  Int       @default(301) // 301, 302, 307, 308
+  isActive    Boolean   @default(true)
+  description String?
+  hitCount    Int       @default(0)
+  lastHitAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([sourcePath, isActive])
+  @@map("redirect_rules")
+}
+
+// -------------------------------------------------------------
+// Security Audit Events
+// -------------------------------------------------------------
+model SecurityAuditEvent {
+  id           String     @id @default(uuid())
+  adminUserId  String?
+  adminUser    AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+  action       String     // e.g. AUTH_LOGIN_SUCCESS, AUTH_LOGIN_FAILED, PAGE_UPDATE
+  resourceType String?    // e.g. USER, PAGE, SESSION, REDIRECT
+  resourceId   String?
+  ipAddress    String?
+  userAgent    String?
+  status       String     // SUCCESS, FAILURE, WARN
+  details      Json?      // Sanitized metadata (NO secrets/passwords/tokens)
+  createdAt    DateTime   @default(now())
+
+  @@index([action])
+  @@index([adminUserId])
+  @@index([createdAt])
+  @@map("security_audit_events")
+}
